@@ -9,8 +9,8 @@ interface InputHost {
     signalDrop(): void;
 }
 
-const MOVEMENT_SPEED = 10.0;
-const MOUSE_SENSITIVITY = 0.0025;
+const MOVEMENT_SPEED = 4.0;
+const MOUSE_SENSITIVITY = 0.005;
 
 export class Input {
     private fpsMovementState: {

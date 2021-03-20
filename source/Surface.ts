@@ -156,3 +156,15 @@ export function createHyperboloid(a: number, b: number, c: number) {
         )
     );
 }
+
+export function createUnitCylinder() {
+    return new QuadraticSurfaceMatrix(
+        // prettier-ignore
+        mat4.fromValues(
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 0, 0,
+            0, 0, 0, -1
+        )
+    );
+}
