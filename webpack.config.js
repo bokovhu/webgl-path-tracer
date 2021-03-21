@@ -23,6 +23,10 @@ module.exports = {
             {
                 test: /\.glsl$/,
                 type: "asset/source"
+            },
+            {
+                test: /\.(png|jpg|bmp)$/,
+                type: "asset/resource"
             }
         ],
     },

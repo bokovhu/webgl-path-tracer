@@ -3,7 +3,8 @@ import { Renderer } from "./Renderer";
 import { Timer } from "./Timer";
 import { Input } from "./Input";
 import { Scene } from "./Scene";
-import { createScene } from "./ExampleScene";
+import { Images } from "./Images";
+import { createImagesToLoad, createScene } from "./ExampleScene";
 
 export class App {
     private _canvas: HTMLCanvasElement;
@@ -13,8 +14,10 @@ export class App {
     private _camera: Camera;
     private _input: Input;
     private _scene: Scene;
+    private _images: Images;
     private _dropSignaled: boolean = false;
     private _loadingRemoved: boolean = false;
+    private _paused: boolean = false;
 
     constructor() {
         this._canvas = document.querySelector("canvas") as HTMLCanvasElement;
@@ -27,11 +30,12 @@ export class App {
         this._camera.moveTo([0, 4, 4]);
 
         this._gl.getExtension("EXT_color_buffer_float");
-        this._gl.getExtension("WEBGL_color_buffer_float");
 
-        window.addEventListener("resize", this.onWindowResized.bind(this));
-        this.onWindowResized();
-        this.requestAnimationFrame();
+        this._images = new Images(
+            createImagesToLoad(),
+            this.onImagesLoaded.bind(this),
+            this.onImageError.bind(this)
+        );
     }
 
     get canvas() {
@@ -58,8 +62,14 @@ export class App {
     get scene() {
         return this._scene;
     }
+    get images() {
+        return this._images;
+    }
     get dropSignaled() {
         return this._dropSignaled;
+    }
+    get isPaused() {
+        return this._paused;
     }
 
     signalDrop() {
@@ -67,6 +77,27 @@ export class App {
     }
     unsignalDrop() {
         this._dropSignaled = false;
+    }
+    togglePause() {
+        this._paused = !this._paused;
+        this.onTogglePaused();
+    }
+    takeScreenshot() {
+        this._renderer.render();
+
+        const imageData = this.canvas
+            .toDataURL("image/png")
+            .replace("image/png", "image/octet-stream");
+        const linkElement: HTMLAnchorElement = document.querySelector(
+            "#screenshot-link"
+        );
+        linkElement.setAttribute("download", "screenshot.png");
+        linkElement.setAttribute("href", imageData);
+        linkElement.click();
+    }
+
+    private requestAnimationFrame() {
+        window.requestAnimationFrame(this.onAnimationFrame.bind(this));
     }
 
     private onWindowResized() {
@@ -82,10 +113,6 @@ export class App {
         this._renderer = new Renderer(this);
     }
 
-    private requestAnimationFrame() {
-        window.requestAnimationFrame(this.onAnimationFrame.bind(this));
-    }
-
     private onAnimationFrame() {
         if (!this._loadingRemoved) {
             document.querySelector("#loading").remove();
@@ -98,5 +125,32 @@ export class App {
         this._renderer.render();
 
         this.requestAnimationFrame();
+    }
+
+    private onImagesLoaded() {
+        setTimeout(
+            () => {
+
+                window.addEventListener("resize", this.onWindowResized.bind(this));
+                this.onWindowResized();
+                this.requestAnimationFrame();
+
+            },
+            50
+        );
+    }
+
+    private onImageError(err: string) {
+        alert(err);
+    }
+
+    private onTogglePaused() {
+        const pausedElement = document.querySelector("#paused");
+
+        if (this._paused) {
+            pausedElement.setAttribute("style", "");
+        } else {
+            pausedElement.setAttribute("style", "display: none");
+        }
     }
 }

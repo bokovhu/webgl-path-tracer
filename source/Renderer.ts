@@ -1,10 +1,9 @@
 import { Timer } from "./Timer";
-import srcPathtracerVS from "./glsl/pathtracer.vertex.glsl";
-import srcPathtracerFS from "./glsl/pathtracer.fragment.glsl";
 import srcTexturedVS from "./glsl/textured.vertex.glsl";
 import srcTexturedFS from "./glsl/textured.fragment.glsl";
 import { Camera } from "./Camera";
 import { Scene } from "./Scene";
+import { Images } from "./Images";
 
 export interface RendererHost {
     readonly timer: Timer;
@@ -13,7 +12,9 @@ export interface RendererHost {
     readonly height: number;
     readonly camera: Camera;
     readonly scene: Scene;
+    readonly images: Images;
     readonly dropSignaled: boolean;
+    readonly isPaused: boolean;
     unsignalDrop(): void;
 }
 
@@ -39,14 +40,18 @@ export class Renderer {
     private texturedProgram: WebGLProgram;
     private fullScreenQuadVBO: WebGLBuffer;
     private fullScreenQuadVAO: WebGLVertexArrayObject;
+    private environmentMapTexture: WebGLTexture;
     private pingPongBuffers: [RenderTarget, RenderTarget];
     private pingPongTarget: number = 0;
     private pathtracerUniforms: {
         "camera.position": WebGLUniformLocation;
         "camera.rayDirMatrix": WebGLUniformLocation;
         time: WebGLUniformLocation;
+        seed: WebGLUniformLocation;
         previousTexture: WebGLUniformLocation;
         pixelSize: WebGLUniformLocation;
+        environmentMapTexture: WebGLUniformLocation;
+        environmentExposure: WebGLUniformLocation;
     };
     private texturedUniforms: {
         textureImage: WebGLUniformLocation;
@@ -55,7 +60,12 @@ export class Renderer {
     private compileShader(name: string, src: string, type: number) {
         const shader = this.host.gl.createShader(type);
         this.host.gl.shaderSource(shader, src);
+
+        console.log(`Compiling ${name} ...`);
+
         this.host.gl.compileShader(shader);
+
+        console.log(`Compiled ${name}!`);
 
         const compileStatus = this.host.gl.getShaderParameter(
             shader,
@@ -82,7 +92,11 @@ export class Renderer {
         this.host.gl.attachShader(program, vs);
         this.host.gl.attachShader(program, fs);
 
+        console.log(`Linking ${name}...`);
+
         this.host.gl.linkProgram(program);
+
+        console.log(`Linked ${name}!`);
 
         const linkStatus = this.host.gl.getProgramParameter(
             program,
@@ -94,7 +108,7 @@ export class Renderer {
             throw new Error(`Could not link ${name}: ${infoLog}`);
         }
 
-        this.host.gl.validateProgram(program);
+        /*this.host.gl.validateProgram(program);
         const validateStatus = this.host.gl.getProgramParameter(
             program,
             this.host.gl.VALIDATE_STATUS
@@ -103,7 +117,7 @@ export class Renderer {
         if (!validateStatus) {
             const infoLog = this.host.gl.getProgramInfoLog(program);
             throw new Error(`Could not validate ${name}: ${infoLog}`);
-        }
+        }*/
 
         const err = this.host.gl.getError();
         if (err) {
@@ -129,16 +143,28 @@ export class Renderer {
             ),
             time: this.host.gl.getUniformLocation(
                 this.pathtracerProgram,
-                "time"
+                "scene.time"
+            ),
+            seed: this.host.gl.getUniformLocation(
+                this.pathtracerProgram,
+                "scene.seed"
             ),
             previousTexture: this.host.gl.getUniformLocation(
                 this.pathtracerProgram,
-                "previousTexture"
+                "scene.previousTexture"
             ),
             pixelSize: this.host.gl.getUniformLocation(
                 this.pathtracerProgram,
                 "pixelSize"
             ),
+            environmentMapTexture: this.host.gl.getUniformLocation(
+                this.pathtracerProgram,
+                "scene.environmentMapTexture"
+            ),
+            environmentExposure: this.host.gl.getUniformLocation(
+                this.pathtracerProgram,
+                "scene.environmentExposure"
+            )
         };
 
         this.host.scene.introspectPathtracer(
@@ -159,12 +185,12 @@ export class Renderer {
     private createShaders() {
         const pathtracerVS = this.compileShader(
             "Pathtracer vertex shader",
-            srcPathtracerVS,
+            this.host.scene.programVertexSource,
             this.host.gl.VERTEX_SHADER
         );
         const pathtracerFS = this.compileShader(
             "Pathtracer fragment shader",
-            srcPathtracerFS,
+            this.host.scene.programFragmentSource,
             this.host.gl.FRAGMENT_SHADER
         );
 
@@ -221,6 +247,7 @@ export class Renderer {
 
     private createFramebuffers() {
         this.pingPongBuffers = [null, null];
+        this.host.gl.activeTexture(this.host.gl.TEXTURE0);
         for (let i = 0; i < 2; i++) {
             const texture = this.host.gl.createTexture();
             this.host.gl.bindTexture(this.host.gl.TEXTURE_2D, texture);
@@ -271,10 +298,107 @@ export class Renderer {
         }
     }
 
+    private createEnvironmentMap() {
+        this.host.gl.activeTexture(this.host.gl.TEXTURE1);
+        this.environmentMapTexture = this.host.gl.createTexture();
+        this.host.gl.bindTexture(
+            this.host.gl.TEXTURE_CUBE_MAP,
+            this.environmentMapTexture
+        );
+
+        const images = this.host.images;
+
+        const nx = images.getImage("env-nx");
+        const px = images.getImage("env-px");
+        const ny = images.getImage("env-ny");
+        const py = images.getImage("env-py");
+        const nz = images.getImage("env-nz");
+        const pz = images.getImage("env-pz");
+
+        this.host.gl.texImage2D(
+            this.host.gl.TEXTURE_CUBE_MAP_NEGATIVE_X,
+            0,
+            this.host.gl.RGBA,
+            nx.width,
+            nx.height,
+            0,
+            this.host.gl.RGBA,
+            this.host.gl.UNSIGNED_BYTE,
+            nx
+        );
+        this.host.gl.texImage2D(
+            this.host.gl.TEXTURE_CUBE_MAP_POSITIVE_X,
+            0,
+            this.host.gl.RGBA,
+            px.width,
+            px.height,
+            0,
+            this.host.gl.RGBA,
+            this.host.gl.UNSIGNED_BYTE,
+            px
+        );
+        this.host.gl.texImage2D(
+            this.host.gl.TEXTURE_CUBE_MAP_NEGATIVE_Y,
+            0,
+            this.host.gl.RGBA,
+            ny.width,
+            ny.height,
+            0,
+            this.host.gl.RGBA,
+            this.host.gl.UNSIGNED_BYTE,
+            ny
+        );
+        this.host.gl.texImage2D(
+            this.host.gl.TEXTURE_CUBE_MAP_POSITIVE_Y,
+            0,
+            this.host.gl.RGBA,
+            py.width,
+            py.height,
+            0,
+            this.host.gl.RGBA,
+            this.host.gl.UNSIGNED_BYTE,
+            py
+        );
+        this.host.gl.texImage2D(
+            this.host.gl.TEXTURE_CUBE_MAP_NEGATIVE_Z,
+            0,
+            this.host.gl.RGBA,
+            nz.width,
+            nz.height,
+            0,
+            this.host.gl.RGBA,
+            this.host.gl.UNSIGNED_BYTE,
+            nz
+        );
+        this.host.gl.texImage2D(
+            this.host.gl.TEXTURE_CUBE_MAP_POSITIVE_Z,
+            0,
+            this.host.gl.RGBA,
+            pz.width,
+            pz.height,
+            0,
+            this.host.gl.RGBA,
+            this.host.gl.UNSIGNED_BYTE,
+            pz
+        );
+
+        this.host.gl.texParameteri(
+            this.host.gl.TEXTURE_CUBE_MAP,
+            this.host.gl.TEXTURE_MIN_FILTER,
+            this.host.gl.LINEAR
+        );
+        this.host.gl.texParameteri(
+            this.host.gl.TEXTURE_CUBE_MAP,
+            this.host.gl.TEXTURE_MAG_FILTER,
+            this.host.gl.LINEAR
+        );
+    }
+
     constructor(private host: RendererHost) {
         this.createShaders();
         this.createGeometry();
         this.createFramebuffers();
+        this.createEnvironmentMap();
     }
 
     dispose() {
@@ -292,6 +416,8 @@ export class Renderer {
             this.host.gl.deleteFramebuffer(this.pingPongBuffers[i].fbo);
             this.host.gl.deleteTexture(this.pingPongBuffers[i].texture);
         }
+
+        this.host.gl.deleteTexture(this.environmentMapTexture);
     }
 
     render() {
@@ -307,47 +433,67 @@ export class Renderer {
             this.host.unsignalDrop();
         }
 
-        this.host.gl.useProgram(this.pathtracerProgram);
+        if (!this.host.isPaused) {
+            this.host.gl.useProgram(this.pathtracerProgram);
 
-        this.host.gl.bindFramebuffer(
-            this.host.gl.FRAMEBUFFER,
-            this.pingPongBuffers[this.pingPongTarget].fbo
-        );
+            this.host.gl.bindFramebuffer(
+                this.host.gl.FRAMEBUFFER,
+                this.pingPongBuffers[this.pingPongTarget].fbo
+            );
 
-        this.host.gl.clearColor(0, 0, 0, 1);
-        this.host.gl.clear(this.host.gl.COLOR_BUFFER_BIT);
+            this.host.gl.clearColor(0, 0, 0, 1);
+            this.host.gl.clear(this.host.gl.COLOR_BUFFER_BIT);
 
-        this.host.gl.viewport(0, 0, this.host.width, this.host.height);
+            this.host.gl.viewport(0, 0, this.host.width, this.host.height);
 
-        this.host.camera.applyUniforms(this.pathtracerUniforms, this.host.gl);
-        this.host.scene.applyUniforms(this.host.gl);
-        this.host.timer.applyUniforms(this.pathtracerUniforms, this.host.gl);
-        this.host.gl.activeTexture(this.host.gl.TEXTURE0);
-        this.host.gl.bindTexture(
-            this.host.gl.TEXTURE_2D,
-            this.pingPongBuffers[
-                (this.pingPongTarget + 1) % this.pingPongBuffers.length
-            ].texture
-        );
-        this.host.gl.uniform1i(this.pathtracerUniforms.previousTexture, 0);
+            this.host.camera.applyUniforms(
+                this.pathtracerUniforms,
+                this.host.gl
+            );
+            this.host.scene.applyUniforms(this.host.gl);
+            this.host.timer.applyUniforms(
+                this.pathtracerUniforms,
+                this.host.gl
+            );
 
-        this.host.gl.bindVertexArray(this.fullScreenQuadVAO);
-        this.host.gl.drawArrays(this.host.gl.TRIANGLES, 0, 6);
+            this.host.gl.activeTexture(this.host.gl.TEXTURE0);
+            this.host.gl.bindTexture(
+                this.host.gl.TEXTURE_2D,
+                this.pingPongBuffers[
+                    (this.pingPongTarget + 1) % this.pingPongBuffers.length
+                ].texture
+            );
+            this.host.gl.activeTexture(this.host.gl.TEXTURE1);
+            this.host.gl.bindTexture(
+                this.host.gl.TEXTURE_CUBE_MAP,
+                this.environmentMapTexture
+            );
 
-        this.host.gl.bindFramebuffer(this.host.gl.FRAMEBUFFER, null);
-        this.host.gl.viewport(0, 0, this.host.width, this.host.height);
-        this.host.gl.clearColor(0, 0, 0, 1);
-        this.host.gl.clear(this.host.gl.COLOR_BUFFER_BIT);
+            this.host.gl.uniform1i(this.pathtracerUniforms.previousTexture, 0);
+            this.host.gl.uniform1i(this.pathtracerUniforms.environmentMapTexture, 1);
 
-        this.host.gl.useProgram(this.texturedProgram);
-        this.host.gl.bindTexture(
-            this.host.gl.TEXTURE_2D,
-            this.pingPongBuffers[this.pingPongTarget].texture
-        );
-        this.host.gl.uniform1i(this.texturedUniforms.textureImage, 0);
-        this.host.gl.drawArrays(this.host.gl.TRIANGLES, 0, 6);
+            this.host.gl.uniform1f(this.pathtracerUniforms.environmentExposure, 4);
+            this.host.gl.uniform1f(this.pathtracerUniforms.seed, Math.random());
 
-        this.pingPongTarget =
-            (this.pingPongTarget + 1) % this.pingPongBuffers.length;
+            this.host.gl.bindVertexArray(this.fullScreenQuadVAO);
+            this.host.gl.drawArrays(this.host.gl.TRIANGLES, 0, 6);
+
+            this.host.gl.bindFramebuffer(this.host.gl.FRAMEBUFFER, null);
+            this.host.gl.viewport(0, 0, this.host.width, this.host.height);
+            this.host.gl.clearColor(0, 0, 0, 1);
+            this.host.gl.clear(this.host.gl.COLOR_BUFFER_BIT);
+
+            this.host.gl.useProgram(this.texturedProgram);
+            this.host.gl.activeTexture(this.host.gl.TEXTURE0);
+            this.host.gl.bindTexture(
+                this.host.gl.TEXTURE_2D,
+                this.pingPongBuffers[this.pingPongTarget].texture
+            );
+            this.host.gl.uniform1i(this.texturedUniforms.textureImage, 0);
+            this.host.gl.drawArrays(this.host.gl.TRIANGLES, 0, 6);
+
+            this.pingPongTarget =
+                (this.pingPongTarget + 1) % this.pingPongBuffers.length;
+        }
     }
 }

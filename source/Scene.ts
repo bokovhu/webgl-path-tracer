@@ -2,6 +2,9 @@ import { Surface, SurfaceUniformLocations } from "./Surface";
 import { Material, MaterialUniformLocations } from "./Material";
 import { PointLight, PointLightUniformLocations } from "./PointLight";
 
+import srcPathtracerVS from "./glsl/pathtracer.vertex.glsl";
+import srcPathtracerFS from "./glsl/pathtracer.fragment.glsl";
+
 export class Scene {
     private surfaceUniformLocationInterfaces: Array<SurfaceUniformLocations> = [];
     private surfaces: Array<Surface> = [];
@@ -49,6 +52,18 @@ export class Scene {
                 emissive: gl.getUniformLocation(
                     program,
                     `materials[${i}].emissive`
+                ),
+                reflectivity: gl.getUniformLocation(
+                    program,
+                    `materials[${i}].reflectivity`
+                ),
+                refractivity: gl.getUniformLocation(
+                    program,
+                    `materials[${i}].refractivity`
+                ),
+                reflectionRefractionProbability: gl.getUniformLocation(
+                    program,
+                    `materials[${i}].reflRefrProbability`
                 ),
             });
         }
@@ -168,5 +183,18 @@ export class Scene {
 
             this.shouldApplyUniforms = false;
         }
+    }
+
+    get programVertexSource(): string {
+        return srcPathtracerVS;
+    }
+
+    get programFragmentSource(): string {
+        const defines = [
+            `#define N_MAX_MATERIALS ${this.maxMaterialCount}`,
+            `#define N_MAX_SURFACES ${this.maxSurfaceCount}`,
+            `#define N_POINT_LIGHTS ${this.maxPointLightCount}`,
+        ].join("\n");
+        return srcPathtracerFS.replace("/// <DEFINES>", defines);
     }
 }

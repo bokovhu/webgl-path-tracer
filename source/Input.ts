@@ -7,6 +7,8 @@ interface InputHost {
     readonly camera: Camera;
     readonly timer: Timer;
     signalDrop(): void;
+    togglePause(): void;
+    takeScreenshot(): void;
 }
 
 const MOVEMENT_SPEED = 4.0;
@@ -34,9 +36,14 @@ export class Input {
 
         window.addEventListener("keydown", this.onKeyDown.bind(this));
         window.addEventListener("keyup", this.onKeyUp.bind(this));
+
         canvas.addEventListener("mousedown", this.onMouseDown.bind(this));
         canvas.addEventListener("mouseup", this.onMouseUp.bind(this));
         canvas.addEventListener("mousemove", this.onMouseMove.bind(this));
+
+        canvas.addEventListener("touchstart", this.onMouseDown.bind(this));
+        canvas.addEventListener("touchend", this.onMouseUp.bind(this));
+        canvas.addEventListener("touchmove", this.onMouseMove.bind(this));
     }
 
     private onKeyDown(event: KeyboardEvent) {
@@ -79,6 +86,12 @@ export class Input {
             case "e":
             case "q":
                 this.fpsMovementState.up = 0;
+                break;
+            case " ":
+                this.host.togglePause();
+                break;
+            case "p":
+                this.host.takeScreenshot();
                 break;
         }
     }
