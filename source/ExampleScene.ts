@@ -65,40 +65,51 @@ const ROOM_WALLS = [
 
 const MATERIALS = [
     new Material(
-        [0.05, 0.05, 0.05],
+        [0.6, 0.05, 0.05],
         [0.1, 0.1, 0.1],
         80.0,
         [0, 0, 0],
-        [0.9, 0.9, 0.9],
+        [0, 0, 0],
         [0, 0, 0],
         1.0,
         [0, 0]
     ),
     new Material(
-        [0.05, 0.2, 0.05],
+        [0.05, 0.6, 0.05],
+        [0.7, 0.7, 0.7],
+        1750.0,
+        [0, 0, 0],
+        [1, 1, 1],
+        [0, 0, 0],
+        1,
+        [1, 0]
+    ),
+    new Material(
+        [0.05, 0.05, 0.6],
         [0.1, 0.1, 0.1],
         12.0,
         [0, 0, 0],
         [0.0, 0.0, 0.0]
     ),
     new Material(
-        [0.05, 0.05, 0.2],
-        [0.1, 0.1, 0.1],
-        12.0,
+        [0.02, 0.02, 0.02],
+        [0.5, 0.5, 0.5],
+        1000,
         [0, 0, 0],
-        [0.0, 0.0, 0.0]
+        [1, 1, 1],
+        [1, 1, 1],
+        1.25,
+        [0.0, 1]
     ),
-    new Material([0.3, 0.3, 0.3], [0.5, 0.5, 0.5], 1000, [0, 0, 0], [0.7, 0.4, 0.7], [0.85, 0.85, 0.85], 1.2, [0.25, 1]),
 ];
 
 const POINT_LIGHTS = [
-    new PointLight([0, 4, 0], [2, 2, 2], [1.0, 0.55, 0.75]),
-    new PointLight([2, 4, -2], [2, 2, 2], [1.0, 0.15, 0.25]),
+    new PointLight([0, 4, 0], [6, 6, 6], [1.0, 0.55, 0.75]),
     new PointLight([0.0, 0.85, 2.0], [6, 6, 6], [1.0, 0.05, 0.15]),
 ];
 
 export function createScene(): Scene {
-    const s = new Scene(8, 4, 4);
+    const s = new Scene(8, 8, 2);
 
     s.addMaterial(...MATERIALS);
 
@@ -110,7 +121,7 @@ export function createScene(): Scene {
                 MatrixMath.translation([-2.0, 1.25, 1.0])
             ),
             createEverywhere(),
-            3
+            1
         ),
         new Surface(
             createUnitSphere().transform(

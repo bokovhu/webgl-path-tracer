@@ -4,6 +4,7 @@ import { PointLight, PointLightUniformLocations } from "./PointLight";
 
 import srcPathtracerVS from "./glsl/pathtracer.vertex.glsl";
 import srcPathtracerFS from "./glsl/pathtracer.fragment.glsl";
+import { introspectProgram } from "./Shader";
 
 export class Scene {
     private surfaceUniformLocationInterfaces: Array<SurfaceUniformLocations> = [];
@@ -29,64 +30,37 @@ export class Scene {
         this.pointLightUniformLocationInterfaces = [];
 
         for (let i = 0; i < this.maxSurfaceCount; i++) {
-            this.surfaceUniformLocationInterfaces.push({
-                Q: gl.getUniformLocation(program, `surfaces[${i}].Q`),
-                C: gl.getUniformLocation(program, `surfaces[${i}].C`),
-                materialId: gl.getUniformLocation(
-                    program,
-                    `surfaces[${i}].materialId`
-                ),
-            });
+            this.surfaceUniformLocationInterfaces.push(
+                introspectProgram({ gl }, program, {
+                    Q: `surfaces[${i}].Q`,
+                    C: `surfaces[${i}].C`,
+                    materialId: `surfaces[${i}].materialId`,
+                })
+            );
         }
 
         for (let i = 0; i < this.maxMaterialCount; i++) {
-            this.materialUniformLocationInterfaces.push({
-                diffuse: gl.getUniformLocation(
-                    program,
-                    `materials[${i}].diffuse`
-                ),
-                specular: gl.getUniformLocation(
-                    program,
-                    `materials[${i}].specular`
-                ),
-                emissive: gl.getUniformLocation(
-                    program,
-                    `materials[${i}].emissive`
-                ),
-                reflectivity: gl.getUniformLocation(
-                    program,
-                    `materials[${i}].reflectivity`
-                ),
-                refractivity: gl.getUniformLocation(
-                    program,
-                    `materials[${i}].refractivity`
-                ),
-                reflectionRefractionProbability: gl.getUniformLocation(
-                    program,
-                    `materials[${i}].reflRefrProbability`
-                ),
-            });
+            this.materialUniformLocationInterfaces.push(
+                introspectProgram({ gl }, program, {
+                    diffuse: `materials[${i}].diffuse`,
+                    specular: `materials[${i}].specular`,
+                    emissive: `materials[${i}].emissive`,
+                    reflectivity: `materials[${i}].reflectivity`,
+                    refractivity: `materials[${i}].refractivity`,
+                    reflectionRefractionProbability: `materials[${i}].reflRefrProbability`,
+                })
+            );
         }
 
         for (let i = 0; i < this.maxPointLightCount; i++) {
-            this.pointLightUniformLocationInterfaces.push({
-                position: gl.getUniformLocation(
-                    program,
-                    `pointLights[${i}].position`
-                ),
-                intensity: gl.getUniformLocation(
-                    program,
-                    `pointLights[${i}].intensity`
-                ),
-                falloff: gl.getUniformLocation(
-                    program,
-                    `pointLights[${i}].falloff`
-                ),
-                enabled: gl.getUniformLocation(
-                    program,
-                    `pointLights[${i}].enabled`
-                ),
-            });
+            this.pointLightUniformLocationInterfaces.push(
+                introspectProgram({ gl }, program, {
+                    position: `pointLights[${i}].position`,
+                    intensity: `pointLights[${i}].intensity`,
+                    falloff: `pointLights[${i}].falloff`,
+                    enabled: `pointLights[${i}].enabled`,
+                })
+            );
         }
 
         this.shouldApplyUniforms = true;

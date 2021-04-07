@@ -1,10 +1,12 @@
 import { vec3 } from "gl-matrix";
 import { Camera } from "./Camera";
+import { Messenger } from "./Messenger";
 import { Timer } from "./Timer";
 
 interface InputHost {
     readonly canvas: HTMLCanvasElement;
     readonly camera: Camera;
+    readonly messenger: Messenger;
     readonly timer: Timer;
     signalDrop(): void;
     togglePause(): void;
@@ -92,6 +94,19 @@ export class Input {
                 break;
             case "p":
                 this.host.takeScreenshot();
+                break;
+            case "x":
+                this.host.camera.saveToLocalStorage();
+                this.host.messenger.show("Saved camera");
+                break;
+            case "c":
+                this.host.camera.loadFromLocalStorage();
+                this.host.signalDrop();
+                this.host.messenger.show("Loaded camera");
+                break;
+            case "v":
+                localStorage.clear();
+                this.host.messenger.show("Cleared local storage");
                 break;
         }
     }

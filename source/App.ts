@@ -4,7 +4,9 @@ import { Timer } from "./Timer";
 import { Input } from "./Input";
 import { Scene } from "./Scene";
 import { Images } from "./Images";
+import { Messenger } from "./Messenger";
 import { createImagesToLoad, createScene } from "./ExampleScene";
+import { Compositor } from "./Compositor";
 
 export class App {
     private _canvas: HTMLCanvasElement;
@@ -15,6 +17,8 @@ export class App {
     private _input: Input;
     private _scene: Scene;
     private _images: Images;
+    private _messenger: Messenger;
+    private _compositor: Compositor;
     private _dropSignaled: boolean = false;
     private _loadingRemoved: boolean = false;
     private _paused: boolean = false;
@@ -22,12 +26,11 @@ export class App {
     constructor() {
         this._canvas = document.querySelector("canvas") as HTMLCanvasElement;
         this._gl = this._canvas.getContext("webgl2");
+        this._messenger = new Messenger();
         this._timer = new Timer();
         this._camera = new Camera();
         this._input = new Input(this);
         this._scene = createScene();
-
-        this._camera.moveTo([0, 4, 4]);
 
         this._gl.getExtension("EXT_color_buffer_float");
 
@@ -65,6 +68,12 @@ export class App {
     get images() {
         return this._images;
     }
+    get renderer() {
+        return this._renderer;
+    }
+    get messenger() {
+        return this._messenger;
+    }
     get dropSignaled() {
         return this._dropSignaled;
     }
@@ -95,6 +104,14 @@ export class App {
         linkElement.setAttribute("href", imageData);
         linkElement.click();
     }
+    showRenderingText() {
+        const renderingElement = document.querySelector("#rendering");
+        renderingElement.setAttribute("style", "");
+    }
+    hideRenderingText() {
+        const renderingElement = document.querySelector("#rendering");
+        renderingElement.setAttribute("style", "display: none");
+    }
 
     private requestAnimationFrame() {
         window.requestAnimationFrame(this.onAnimationFrame.bind(this));
@@ -111,6 +128,12 @@ export class App {
         }
 
         this._renderer = new Renderer(this);
+
+        if (this._compositor) {
+            this._compositor.dispose();
+        }
+
+        this._compositor = new Compositor(this);
     }
 
     private onAnimationFrame() {
@@ -122,22 +145,20 @@ export class App {
         this._timer.update();
         this._input.update();
 
-        this._renderer.render();
+        // this._renderer.render();
+        this._compositor.render();
+
+        this.unsignalDrop();
 
         this.requestAnimationFrame();
     }
 
     private onImagesLoaded() {
-        setTimeout(
-            () => {
-
-                window.addEventListener("resize", this.onWindowResized.bind(this));
-                this.onWindowResized();
-                this.requestAnimationFrame();
-
-            },
-            50
-        );
+        setTimeout(() => {
+            window.addEventListener("resize", this.onWindowResized.bind(this));
+            this.onWindowResized();
+            this.requestAnimationFrame();
+        }, 50);
     }
 
     private onImageError(err: string) {

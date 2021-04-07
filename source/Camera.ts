@@ -1,12 +1,16 @@
 import { vec3, mat4, glMatrix, vec4 } from "gl-matrix";
-import {MatrixMath} from "./MatrixMath";
+import { MatrixMath } from "./MatrixMath";
 
 export interface CameraUniformLocations {
-    readonly "camera.position": WebGLUniformLocation;
-    readonly "camera.rayDirMatrix": WebGLUniformLocation;
+    readonly position: WebGLUniformLocation;
+    readonly rayDirMatrix: WebGLUniformLocation;
+    readonly up: WebGLUniformLocation;
+    readonly front: WebGLUniformLocation;
+    readonly right: WebGLUniformLocation;
 }
 
 const worldUp: vec3 = [0, 1, 0];
+const LOCAL_STORAGE_KEY = "camera";
 
 export class Camera {
     private position: vec3 = vec3.fromValues(0, 0, 0);
@@ -43,6 +47,7 @@ export class Camera {
     private mRayDir: mat4 = mat4.create();
 
     constructor() {
+        this.loadFromLocalStorage();
         this.update();
     }
 
@@ -151,7 +156,13 @@ export class Camera {
         this.updateRotationMatrices();
         this.updateViewMatrix();
 
-        MatrixMath.perspectiveProjection(this.mProjection, this.fieldOfView, this.aspectRatio, this.near, this.far);
+        MatrixMath.perspectiveProjection(
+            this.mProjection,
+            this.fieldOfView,
+            this.aspectRatio,
+            this.near,
+            this.far
+        );
 
         this.mViewProjection = mat4.multiply(
             this.mViewProjection,
@@ -165,10 +176,10 @@ export class Camera {
         mat4.invert(this.mRayDir, this.mRayDir);
 
         this.forwardXYZ0 = vec4.set(
-            this.forwardXYZ0, 
-            -1 * this.mRotation[2], 
-            -1 * this.mRotation[6], 
-            -1 * this.mRotation[10], 
+            this.forwardXYZ0,
+            -1 * this.mRotation[2],
+            -1 * this.mRotation[6],
+            -1 * this.mRotation[10],
             -1 * this.mRotation[14]
         );
         this.forward = vec3.set(
@@ -179,7 +190,7 @@ export class Camera {
         );
 
         this.rightXYZ0 = vec4.set(
-            this.rightXYZ0, 
+            this.rightXYZ0,
             1 * this.mRotation[0],
             1 * this.mRotation[4],
             1 * this.mRotation[8],
@@ -193,7 +204,7 @@ export class Camera {
         );
 
         this.upXYZ0 = vec4.set(
-            this.upXYZ0, 
+            this.upXYZ0,
             1 * this.mRotation[1],
             1 * this.mRotation[5],
             1 * this.mRotation[9],
@@ -207,8 +218,52 @@ export class Camera {
         );
     }
 
+    saveToLocalStorage() {
+        localStorage.setItem(
+            LOCAL_STORAGE_KEY,
+            JSON.stringify({
+                position: this.position,
+                yaw: this.yaw,
+                pitch: this.pitch,
+                roll: this.roll,
+                fieldOfView: this.fieldOfView,
+                near: this.near,
+                far: this.far,
+                aspectRatio: this.aspectRatio,
+            })
+        );
+    }
+
+    loadFromLocalStorage() {
+        const item = localStorage.getItem(LOCAL_STORAGE_KEY);
+
+        if (item) {
+            const obj = JSON.parse(item);
+
+            this.position =
+                vec3.clone(obj.position) || vec3.fromValues(0, 0, 0);
+            this.yaw = obj.yaw || 0.0;
+            this.pitch = obj.pitch || 0.0;
+            this.roll = obj.roll || 0.0;
+            this.fieldOfView = obj.fieldOfView || glMatrix.toRadian(70.0);
+            this.near = obj.near || 0.01;
+            this.far = obj.far || 100.0;
+            this.aspectRatio = obj.aspectRatio || 1.0;
+
+            this.update();
+        }
+    }
+
     applyUniforms(u: CameraUniformLocations, gl: WebGL2RenderingContext) {
-        gl.uniform4fv(u["camera.position"], this.positionXYZ1);
-        gl.uniformMatrix4fv(u["camera.rayDirMatrix"], false, this.mRayDir);
+        gl.uniform4fv(u.position, this.positionXYZ1);
+        gl.uniformMatrix4fv(u.rayDirMatrix, false, this.mRayDir);
+        gl.uniform3f(
+            u.front,
+            this.forward[0],
+            this.forward[1],
+            this.forward[2]
+        );
+        gl.uniform3f(u.up, this.up[0], this.up[1], this.up[2]);
+        gl.uniform3f(u.right, this.right[0], this.right[1], this.right[2]);
     }
 }

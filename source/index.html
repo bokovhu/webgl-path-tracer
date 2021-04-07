@@ -29,12 +29,23 @@
                 flex-direction: column;
             }
 
-            #loading {
-                background: black;
+            .message {
+                
+                position: absolute;
+                top: 16px;
+                left: 16px;
+
+            }
+
+            .status-text {
                 color: white;
                 font-weight: bold;
                 font-family: Verdana, Geneva, Tahoma, sans-serif;
                 text-shadow: 1px 1px 3px black;
+            }
+
+            #loading {
+                background: black;
             }
 
             #paused {
@@ -45,10 +56,6 @@
                     rgba(0, 0, 0, 0.4) 16px,
                     rgba(0, 0, 0, 0.4) 32px
                 );
-                color: white;
-                font-weight: bold;
-                font-family: Verdana, Geneva, Tahoma, sans-serif;
-                text-shadow: 1px 1px 3px black;
             }
 
             #screenshot-link {
@@ -58,12 +65,18 @@
     </head>
     <body>
         <canvas id="canvas"></canvas>
-        <div class="flex-centered" id="loading">
+        <div class="flex-centered status-text" id="loading">
             <h1>Loading ...</h1>
             <h2>This may take some time</h2>
         </div>
-        <div class="flex-centered" id="paused" style="display: none">
+        <div class="flex-centered status-text" id="paused" style="display: none">
             <h1>Rendering is paused.</h1>
+        </div>
+        <div class="flex-centered status-text" id="rendering" style="display: none">
+            <h1>Please wait, rendering ...</h1>
+        </div>
+        <div class="message status-text" id="message" style="display: none">
+            <p id="message-text"></p>
         </div>
         <a id="screenshot-link"></a>
     </body>

@@ -3,12 +3,19 @@
 #define EPS 0.001
 #define PI 3.14159265
 
+#define N_INDIRECT_BOUNCES 6
 #define N_REFLECTION_BOUNCES 4
-#define N_INDIRECT_BOUNCES 2
+#define N_SAMPLES 1
+
+#define MIX_MIN 0.25
+#define MIX_MAX 0.999
+#define MIX_SLOPE 0.00001
+
+// #define BRANCHED_PATH_TRACING
 
 /// <DEFINES>
 
-precision mediump float;
+precision highp float;
 
 const float PHIG = 1.61803398874989484820459 * 00000.1;
 const float PIG = 3.14159265358979323846264 * 00000.1;
@@ -20,6 +27,9 @@ in vec2 v_texCoord;
 uniform struct {
     vec4 position;
     mat4 rayDirMatrix;
+    vec3 front;
+    vec3 up;
+    vec3 right;
 } camera;
 
 uniform struct {
@@ -50,6 +60,8 @@ uniform struct {
     sampler2D previousTexture;
     samplerCube environmentMapTexture;
     float environmentExposure;
+    int frameCount;
+    float pixelSize;
 } scene;
 
 float goldRand(in vec3 seed) {
@@ -71,6 +83,9 @@ struct TraceResult {
     vec3 rayDirection;
     int hitMaterialId;
 };
+
+TraceResult shadowTraceResult;
+TraceResult giTraceResult;
 
 const vec3 lightAmbientIntensity = vec3(0.1, 0.1, 0.1);
 
@@ -179,8 +194,6 @@ vec3 pointLightRadiance(in vec3 surfacePoint, in vec3 surfaceNormal, in int mate
     vec3 shadowRO = surfacePoint + surfaceNormal * 0.01;
     vec3 shadowRD = surfaceToLight;
 
-    TraceResult shadowTraceResult;
-
     traceScene(shadowRO, shadowRD, shadowTraceResult);
     float shadowDistance = length(shadowRO - shadowTraceResult.hitPoint);
 
@@ -218,6 +231,7 @@ vec3 directRadiance(vec3 P, vec3 N, int m, vec3 w) {
     return total;
 }
 
+#ifndef BRANCHED_PATH_TRACING
 vec3 directLighting(in TraceResult traceResult) {
 
     vec3 total = vec3(0.0);
@@ -246,9 +260,7 @@ vec3 directLighting(in TraceResult traceResult) {
             dWeight = materials[hitM].reflectivity;
         } else {
             reflRO = hitP - 0.01 * hitN;
-            reflRD = normalize(
-                refract(reflRD, hitN, materials[hitM].refractivity.w)
-            );
+            reflRD = normalize(refract(reflRD, hitN, materials[hitM].refractivity.w));
 
             dWeight = materials[hitM].refractivity.xyz;
         }
@@ -275,6 +287,7 @@ vec3 directLighting(in TraceResult traceResult) {
     return total;
 
 }
+#endif
 
 vec4 indirectSampleDirection(in vec3 N, in float i) {
 
@@ -285,6 +298,130 @@ vec4 indirectSampleDirection(in vec3 N, in float i) {
 
 }
 
+#ifdef BRANCHED_PATH_TRACING
+vec4 illuminateIndirect(in vec3 hitP, in vec3 hitN, float i, out TraceResult giTraceResult) {
+
+    vec4 samp = indirectSampleDirection(hitN, float(i));
+
+    vec3 giRO = hitP + 0.01 * hitN;
+    vec3 giRD = normalize(samp.xyz);
+    traceScene(giRO, giRD, giTraceResult);
+
+    if(giTraceResult.hitMaterialId < 0) {
+        vec3 env = sampleEnv(giRD);
+        return vec4(env * samp.w, samp.w);
+    }
+
+    return vec4(directRadiance(giTraceResult.hitPoint, giTraceResult.hitNormal, giTraceResult.hitMaterialId, vec3(1.0)) * samp.w + samp.w * materials[giTraceResult.hitMaterialId].emissive, samp.w);
+
+}
+
+vec4 illuminateReflection(in vec3 hitP, in vec3 hitN, in int hitM, in vec3 hitRD, out TraceResult traceResult) {
+
+    vec3 reflRD = normalize(reflect(hitRD, hitN));
+    vec3 reflRO = hitP + 0.01 * hitN;
+
+    vec3 reflectivity = materials[hitM].reflectivity;
+
+    traceScene(reflRO, reflRD, traceResult);
+
+    if(traceResult.hitMaterialId < 0) {
+        vec3 env = sampleEnv(reflRD);
+        return vec4(reflectivity * env, 0.0);
+    } else {
+
+        return vec4(reflectivity * directRadiance(traceResult.hitPoint, traceResult.hitNormal, traceResult.hitMaterialId, vec3(1.0)), reflectivity.x);
+
+    }
+
+}
+
+vec4 illuminateRefraction(in vec3 hitP, in vec3 hitN, in int hitM, in vec3 hitRD, out TraceResult traceResult) {
+
+    vec3 refrRO = hitP - 0.01 * hitN;
+
+    vec4 refractivity = materials[hitM].refractivity;
+
+    vec3 refrRD = normalize(refract(hitRD, hitN, refractivity.w));
+
+    traceScene(refrRO, refrRD, traceResult);
+
+    if(traceResult.hitMaterialId < 0) {
+        vec3 env = sampleEnv(refrRD);
+        return vec4(refractivity.xyz * env, 0.0);
+    } else {
+
+        return vec4(refractivity.xyz * directRadiance(traceResult.hitPoint, traceResult.hitNormal, traceResult.hitMaterialId, vec3(1.0)), refractivity.x);
+
+    }
+
+}
+#endif
+
+#ifdef BRANCHED_PATH_TRACING
+vec3 illuminate(in TraceResult primaryResult) {
+
+    vec3 total = vec3(0.0);
+    vec3 totalIndirect = vec3(0.0);
+
+    total += ambientLighting(primaryResult);
+    total += directRadiance(primaryResult.hitPoint, primaryResult.hitNormal, primaryResult.hitMaterialId, vec3(1.0));
+
+    float w = 1.0;
+    float w2 = 1.0;
+    giTraceResult = primaryResult;
+
+    for(int i = 0; i < N_INDIRECT_BOUNCES; i++) {
+
+        if(w <= 0.0001) {
+            break;
+        }
+
+        float bounceType = perPixelRandom(scene.seed + float(i));
+        vec2 reflRefrProbability = materials[giTraceResult.hitMaterialId].reflRefrProbability;
+
+        if(bounceType < 0.5 && reflRefrProbability.x + reflRefrProbability.y >= 0.01) {
+
+            // Create a reflection/refraction ray
+
+            float reflOrRefr = perPixelRandom(scene.seed + -1.0 * float(i)) * (reflRefrProbability.x + reflRefrProbability.y);
+
+            if(reflOrRefr < reflRefrProbability.x) {
+
+                // Should reflect if possible
+
+                vec4 reflection = illuminateReflection(giTraceResult.hitPoint, giTraceResult.hitNormal, giTraceResult.hitMaterialId, giTraceResult.rayDirection, giTraceResult);
+
+                total += w2 * reflection.xyz;
+                w2 = w2 * reflection.w;
+
+            } else {
+
+                // Should refract if possible
+
+                vec4 refraction = illuminateRefraction(giTraceResult.hitPoint, giTraceResult.hitNormal, giTraceResult.hitMaterialId, giTraceResult.rayDirection, giTraceResult);
+
+                total += w2 * refraction.xyz;
+                w2 = w2 * refraction.w;
+
+            }
+
+        } else {
+
+            vec4 indirect = illuminateIndirect(giTraceResult.hitPoint, giTraceResult.hitNormal, float(i), giTraceResult);
+
+            totalIndirect += w * indirect.xyz;
+            w = w * indirect.w;
+
+        }
+    }
+
+    return total + totalIndirect;
+
+}
+#endif
+
+#ifndef BRANCHED_PATH_TRACING
 vec3 illuminate(in TraceResult primaryResult) {
 
     vec3 total = vec3(0.0);
@@ -321,20 +458,39 @@ vec3 illuminate(in TraceResult primaryResult) {
     return total + totalIndirect;
 
 }
+#endif
 
 void main() {
 
-    vec3 primaryRO = camera.position.xyz;
-    vec3 primaryRD = normalize(v_rayDir.xyz);
-    TraceResult primaryResult;
+    vec3 total = vec3(0.0);
 
-    traceScene(primaryRO, primaryRD, primaryResult);
+    for(int i = 0; i < N_SAMPLES; i++) {
 
-    if(primaryResult.hitMaterialId >= 0) {
-        out_finalColor = 0.99 * texture(scene.previousTexture, v_texCoord) + 0.01 * vec4(illuminate(primaryResult), 1.0);
-        // out_finalColor = vec4(directLighting(primaryResult), 1.0);
-    } else {
-        out_finalColor = vec4(sampleEnv(primaryRD), 1.0);
+        vec3 primaryRO = camera.position.xyz;
+        vec3 primaryRD = normalize(v_rayDir.xyz);
+
+        vec2 rnd = vec2(perPixelRandom(float(i)), perPixelRandom(float(-i)));
+
+        rnd = (rnd * 2.0 - vec2(1.0)) * scene.pixelSize;
+
+        primaryRD += 0.5 * (rnd.x * camera.right + rnd.y * camera.up);
+
+        primaryRD = normalize(primaryRD);
+
+        TraceResult primaryResult;
+
+        traceScene(primaryRO, primaryRD, primaryResult);
+
+        if(primaryResult.hitMaterialId >= 0) {
+            total += illuminate(primaryResult);
+        } else {
+            total += sampleEnv(primaryRD);
+        }
+
     }
+
+    total = total / float(N_SAMPLES);
+
+    out_finalColor = vec4(total, 1.0);
 
 }

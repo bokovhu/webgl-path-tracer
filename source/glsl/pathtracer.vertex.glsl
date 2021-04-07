@@ -1,12 +1,15 @@
 #version 300 es
 
-precision mediump float;
+precision highp float;
 
 in vec4 a_vertexPosition;
 
 uniform struct {
     vec4 position;
     mat4 rayDirMatrix;
+    vec3 front;
+    vec3 up;
+    vec3 right;
 } camera;
 
 out vec4 v_rayDir;
