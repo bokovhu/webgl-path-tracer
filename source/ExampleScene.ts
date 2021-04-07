@@ -79,7 +79,7 @@ const MATERIALS = [
         [0.7, 0.7, 0.7],
         1750.0,
         [0, 0, 0],
-        [1, 1, 1],
+        [0, 0, 0],
         [0, 0, 0],
         1,
         [1, 0]
@@ -101,11 +101,31 @@ const MATERIALS = [
         1.25,
         [0.0, 1]
     ),
+    new Material(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+        1,
+        [0, 0, 0],
+        [1, 1, 1],
+        [1, 1, 1],
+        1.25,
+        [1, 1]
+    ),
+    new Material(
+        [0.3, 0.3, 0.05],
+        [0.1, 0.1, 0.1],
+        10,
+        [0, 0, 0.0],
+        [0, 0, 0],
+        [0, 0, 0],
+        1.0,
+        [0, 0]
+    ),
 ];
 
 const POINT_LIGHTS = [
-    new PointLight([0, 4, 0], [6, 6, 6], [1.0, 0.55, 0.75]),
-    new PointLight([0.0, 0.85, 2.0], [6, 6, 6], [1.0, 0.05, 0.15]),
+    new PointLight([0, 4, 0], [1, 2, 1], [1.0, 0.15, 0.25]),
+    new PointLight([0.0, 2, 0.0], [2, 1, 2], [1.0, 0.15, 0.25]),
 ];
 
 export function createScene(): Scene {
@@ -121,14 +141,14 @@ export function createScene(): Scene {
                 MatrixMath.translation([-2.0, 1.25, 1.0])
             ),
             createEverywhere(),
-            1
+            4
         ),
         new Surface(
             createUnitSphere().transform(
                 MatrixMath.translation([2.0, 1.25, -1.0])
             ),
             createEverywhere(),
-            2
+            5
         ),
         new Surface(
             createHyperboloid(6, 4, 6).transform(
@@ -139,11 +159,6 @@ export function createScene(): Scene {
                 .transform(MatrixMath.translation([0.0, 1.0, 2.0])),
             3
         ),
-        /*new Surface(
-            createUnitPlane(),
-            createUnitSphere().transform(MatrixMath.scale(6, 6, 6)),
-            2
-        )*/
         ...ROOM_WALLS
     );
 
