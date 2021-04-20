@@ -1,6 +1,4 @@
 import { Timer } from "./Timer";
-import srcTexturedVS from "./glsl/textured.vertex.glsl";
-import srcTexturedFS from "./glsl/textured.fragment.glsl";
 import { Camera, CameraUniformLocations } from "./Camera";
 import { Scene } from "./Scene";
 import { Images } from "./Images";
@@ -40,12 +38,9 @@ const fullScreenQuadData: Float32Array = new Float32Array(
 
 export class Renderer {
     private pathtracerProgram: WebGLProgram;
-    private texturedProgram: WebGLProgram;
     private fullScreenQuadVBO: WebGLBuffer;
     private fullScreenQuadVAO: WebGLVertexArrayObject;
     private environmentMapTexture: WebGLTexture;
-    private pingPongBuffers: [RenderTarget, RenderTarget];
-    private pingPongTarget: number = 0;
     private pathtracerUniforms: {
         time: WebGLUniformLocation;
         seed: WebGLUniformLocation;
@@ -56,9 +51,6 @@ export class Renderer {
         frameCount: WebGLUniformLocation;
     };
     private cameraUniforms: CameraUniformLocations;
-    private texturedUniforms: {
-        textureImage: WebGLUniformLocation;
-    };
     private frameCount: number = 0;
 
     private introspectShaders() {
@@ -92,14 +84,6 @@ export class Renderer {
             this.pathtracerProgram,
             this.host.gl
         );
-
-        this.host.gl.useProgram(this.texturedProgram);
-
-        this.texturedUniforms = introspectProgram(
-            this.host,
-            this.texturedProgram,
-            { textureImage: `textureImage` }
-        );
     }
 
     private createShaders() {
@@ -124,27 +108,6 @@ export class Renderer {
         this.host.gl.deleteShader(pathtracerVS);
         this.host.gl.deleteShader(pathtracerFS);
 
-        const texturedVS = compileVertexShader(
-            this.host,
-            "Textured vertex shader",
-            srcTexturedVS
-        );
-        const texturedFS = compileFragmentShader(
-            this.host,
-            "Textured fragment shader",
-            srcTexturedFS
-        );
-
-        this.texturedProgram = createProgram(
-            this.host,
-            "Textured",
-            texturedVS,
-            texturedFS
-        );
-
-        this.host.gl.deleteShader(texturedVS);
-        this.host.gl.deleteShader(texturedFS);
-
         this.introspectShaders();
     }
 
@@ -165,14 +128,6 @@ export class Renderer {
 
         this.host.gl.enableVertexAttribArray(0);
         this.host.gl.vertexAttribPointer(0, 3, this.host.gl.FLOAT, false, 0, 0);
-    }
-
-    private createFramebuffers() {
-        this.pingPongBuffers = [null, null];
-        this.host.gl.activeTexture(this.host.gl.TEXTURE0);
-        for (let i = 0; i < 2; i++) {
-            this.pingPongBuffers[i] = createRenderTarget(this.host);
-        }
     }
 
     private createEnvironmentMap() {
@@ -274,7 +229,6 @@ export class Renderer {
     constructor(private host: RendererHost) {
         this.createShaders();
         this.createGeometry();
-        this.createFramebuffers();
         this.createEnvironmentMap();
     }
 
@@ -285,14 +239,8 @@ export class Renderer {
         this.host.gl.bindFramebuffer(this.host.gl.FRAMEBUFFER, null);
 
         this.host.gl.deleteProgram(this.pathtracerProgram);
-        this.host.gl.deleteProgram(this.texturedProgram);
         this.host.gl.deleteVertexArray(this.fullScreenQuadVAO);
         this.host.gl.deleteBuffer(this.fullScreenQuadVBO);
-
-        for (let i = 0; i < this.pingPongBuffers.length; i++) {
-            this.host.gl.deleteFramebuffer(this.pingPongBuffers[i].fbo);
-            this.host.gl.deleteTexture(this.pingPongBuffers[i].texture);
-        }
 
         this.host.gl.deleteTexture(this.environmentMapTexture);
     }
@@ -316,26 +264,18 @@ export class Renderer {
         this.host.scene.applyUniforms(this.host.gl);
         this.host.timer.applyUniforms(this.pathtracerUniforms, this.host.gl);
 
-        this.host.gl.activeTexture(this.host.gl.TEXTURE0);
-        this.host.gl.bindTexture(
-            this.host.gl.TEXTURE_2D,
-            this.pingPongBuffers[
-                (this.pingPongTarget + 1) % this.pingPongBuffers.length
-            ].texture
-        );
         this.host.gl.activeTexture(this.host.gl.TEXTURE1);
         this.host.gl.bindTexture(
             this.host.gl.TEXTURE_CUBE_MAP,
             this.environmentMapTexture
         );
 
-        this.host.gl.uniform1i(this.pathtracerUniforms.previousTexture, 0);
         this.host.gl.uniform1i(
             this.pathtracerUniforms.environmentMapTexture,
             1
         );
 
-        this.host.gl.uniform1f(this.pathtracerUniforms.environmentExposure, 4);
+        this.host.gl.uniform1f(this.pathtracerUniforms.environmentExposure, 1);
         this.host.gl.uniform1f(this.pathtracerUniforms.seed, Math.random());
         this.host.gl.uniform1f(
             this.pathtracerUniforms.pixelSize,
@@ -349,51 +289,4 @@ export class Renderer {
         this.drawFullScreenQuad();
     }
 
-    presentScene() {
-        this.host.gl.viewport(0, 0, this.host.width, this.host.height);
-        this.host.gl.clearColor(0, 0, 0, 1);
-        this.host.gl.clear(this.host.gl.COLOR_BUFFER_BIT);
-
-        this.host.gl.useProgram(this.texturedProgram);
-        this.host.gl.activeTexture(this.host.gl.TEXTURE0);
-        this.host.gl.bindTexture(
-            this.host.gl.TEXTURE_2D,
-            this.pingPongBuffers[this.pingPongTarget].texture
-        );
-        this.host.gl.uniform1i(this.texturedUniforms.textureImage, 0);
-        
-        this.drawFullScreenQuad();
-    }
-
-    render() {
-        if (this.host.dropSignaled) {
-            for (let i = 0; i < this.pingPongBuffers.length; i++) {
-                this.host.gl.bindFramebuffer(
-                    this.host.gl.FRAMEBUFFER,
-                    this.pingPongBuffers[i].fbo
-                );
-                this.host.gl.clearColor(0, 0, 0, 1);
-                this.host.gl.clear(this.host.gl.COLOR_BUFFER_BIT);
-            }
-            this.frameCount = 0;
-        }
-
-        if (!this.host.isPaused) {
-            this.host.gl.bindFramebuffer(
-                this.host.gl.FRAMEBUFFER,
-                this.pingPongBuffers[this.pingPongTarget].fbo
-            );
-
-            this.renderScene();
-
-            this.host.gl.bindFramebuffer(this.host.gl.FRAMEBUFFER, null);
-
-            this.presentScene();
-
-            this.pingPongTarget =
-                (this.pingPongTarget + 1) % this.pingPongBuffers.length;
-
-            ++this.frameCount;
-        }
-    }
 }

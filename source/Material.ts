@@ -1,4 +1,4 @@
-import { vec2, vec3 } from "gl-matrix";
+import { vec2, vec3, vec4 } from "gl-matrix";
 
 export interface MaterialUniformLocations {
     diffuse: WebGLUniformLocation;
@@ -6,7 +6,7 @@ export interface MaterialUniformLocations {
     emissive: WebGLUniformLocation;
     reflectivity: WebGLUniformLocation;
     refractivity: WebGLUniformLocation;
-    reflectionRefractionProbability: WebGLUniformLocation;
+    ior: WebGLUniformLocation;
 }
 
 export class Material {
@@ -15,10 +15,9 @@ export class Material {
         private specular: vec3 = [0, 0, 0],
         private shininess: number = 1.0,
         private emissive: vec3 = [0, 0, 0],
-        private reflectivity: vec3 = [0, 0, 0],
-        private refractivity: vec3 = [0, 0, 0],
-        private ior: number = 1.0,
-        private reflectionRefractionProbability: vec2 = [0, 0]
+        private reflectivity: vec4 = [0, 0, 0, 0],
+        private refractivity: vec4 = [0, 0, 0, 0],
+        private ior: number = 1.0
     ) {}
 
     applyUniforms(
@@ -44,23 +43,20 @@ export class Material {
             this.emissive[1],
             this.emissive[2]
         );
-        gl.uniform3f(
+        gl.uniform4f(
             locations.reflectivity,
             this.reflectivity[0],
             this.reflectivity[1],
-            this.reflectivity[2]
+            this.reflectivity[2],
+            this.reflectivity[3]
         );
         gl.uniform4f(
             locations.refractivity,
             this.refractivity[0],
             this.refractivity[1],
             this.refractivity[2],
-            this.ior
+            this.refractivity[3]
         );
-        gl.uniform2f(
-            locations.reflectionRefractionProbability,
-            this.reflectionRefractionProbability[0],
-            this.reflectionRefractionProbability[1]
-        );
+        gl.uniform1f(locations.ior, this.ior);
     }
 }

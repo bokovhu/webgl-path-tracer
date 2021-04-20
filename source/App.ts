@@ -22,6 +22,7 @@ export class App {
     private _dropSignaled: boolean = false;
     private _loadingRemoved: boolean = false;
     private _paused: boolean = false;
+    private _disposeRecreate: boolean = true;
 
     constructor() {
         this._canvas = document.querySelector("canvas") as HTMLCanvasElement;
@@ -91,19 +92,6 @@ export class App {
         this._paused = !this._paused;
         this.onTogglePaused();
     }
-    takeScreenshot() {
-        this._renderer.render();
-
-        const imageData = this.canvas
-            .toDataURL("image/png")
-            .replace("image/png", "image/octet-stream");
-        const linkElement: HTMLAnchorElement = document.querySelector(
-            "#screenshot-link"
-        );
-        linkElement.setAttribute("download", "screenshot.png");
-        linkElement.setAttribute("href", imageData);
-        linkElement.click();
-    }
     showRenderingText() {
         const renderingElement = document.querySelector("#rendering");
         renderingElement.setAttribute("style", "");
@@ -123,17 +111,7 @@ export class App {
 
         this._camera.rescale(this._canvas.width / this._canvas.height);
 
-        if (this._renderer) {
-            this._renderer.dispose();
-        }
-
-        this._renderer = new Renderer(this);
-
-        if (this._compositor) {
-            this._compositor.dispose();
-        }
-
-        this._compositor = new Compositor(this);
+        this._disposeRecreate = true;
     }
 
     private onAnimationFrame() {
@@ -144,6 +122,21 @@ export class App {
 
         this._timer.update();
         this._input.update();
+
+        if(this._disposeRecreate) {
+            this._disposeRecreate = false;
+            if (this._renderer) {
+                this._renderer.dispose();
+            }
+    
+            this._renderer = new Renderer(this);
+    
+            if (this._compositor) {
+                this._compositor.dispose();
+            }
+    
+            this._compositor = new Compositor(this);
+        }
 
         // this._renderer.render();
         this._compositor.render();

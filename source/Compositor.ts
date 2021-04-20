@@ -4,6 +4,8 @@ import srcBlendVS from "./glsl/blend.vertex.glsl";
 import srcBlendFS from "./glsl/blend.fragment.glsl";
 import srcAvgVS from "./glsl/avg.vertex.glsl";
 import srcAvgFS from "./glsl/avg.fragment.glsl";
+import srcToneMapVS from "./glsl/tone-map.vertex.glsl";
+import srcToneMapFS from "./glsl/tone-map.fragment.glsl";
 import {
     compileFragmentShader,
     compileVertexShader,
@@ -30,10 +32,15 @@ interface AvgUniforms {
     frameCount: WebGLUniformLocation;
 }
 
+interface ToneMapUniforms {
+    image: WebGLUniformLocation;
+}
+
 export class Compositor {
     private numRenderTargets: number = 16;
     private renderTargets: Array<RenderTarget> = [];
     private previewRenderTarget: RenderTarget;
+    private previousResultTarget: RenderTarget;
     private accumulatorRenderTarget: RenderTarget;
     private currentTargetIndex: number = 0;
     private accumulationCount: number = 1;
@@ -42,6 +49,8 @@ export class Compositor {
     private blendUniforms: BlendUniforms;
     private avgProgram: WebGLProgram;
     private avgUniforms: AvgUniforms;
+    private toneMapProgram: WebGLProgram;
+    private toneMapUniforms: ToneMapUniforms;
 
     constructor(private host: CompositorHost) {
         this.createResources();
@@ -88,6 +97,35 @@ export class Compositor {
         this.host.gl.deleteShader(avgFS);
     }
 
+    private createToneMapProgram() {
+        const toneMapVS = compileVertexShader(
+            this.host,
+            "Tone map vertex",
+            srcToneMapVS
+        );
+        const toneMapFS = compileFragmentShader(
+            this.host,
+            "Tone map fragment",
+            srcToneMapFS
+        );
+
+        this.toneMapProgram = createProgram(
+            this.host,
+            "Tone map",
+            toneMapVS,
+            toneMapFS
+        );
+        this.toneMapUniforms = introspectProgram(
+            this.host,
+            this.toneMapProgram,
+            {
+                image: "image",
+            }
+        );
+        this.host.gl.deleteShader(toneMapVS);
+        this.host.gl.deleteShader(toneMapFS);
+    }
+
     createResources() {
         this.host.gl.activeTexture(this.host.gl.TEXTURE0);
         this.renderTargets = [];
@@ -96,9 +134,11 @@ export class Compositor {
         }
         this.previewRenderTarget = createRenderTarget(this.host);
         this.accumulatorRenderTarget = createRenderTarget(this.host);
+        this.previousResultTarget = createRenderTarget(this.host);
 
         this.createBlendProgram();
         this.createAvgProgram();
+        this.createToneMapProgram();
     }
 
     dispose() {
@@ -117,7 +157,12 @@ export class Compositor {
         this.host.gl.deleteFramebuffer(this.accumulatorRenderTarget.fbo);
         this.host.gl.deleteTexture(this.accumulatorRenderTarget.texture);
 
+        this.host.gl.deleteFramebuffer(this.previousResultTarget.fbo);
+        this.host.gl.deleteTexture(this.previousResultTarget.texture);
+
         this.host.gl.deleteProgram(this.blendProgram);
+        this.host.gl.deleteProgram(this.avgProgram);
+        this.host.gl.deleteProgram(this.toneMapProgram);
 
         this.renderTargets = [];
     }
@@ -131,40 +176,32 @@ export class Compositor {
 
     private presentPreview() {
         this.host.gl.bindFramebuffer(this.host.gl.FRAMEBUFFER, null);
+        this.host.gl.bindFramebuffer(this.host.gl.DRAW_FRAMEBUFFER, null);
         this.host.gl.viewport(0, 0, this.host.width, this.host.height);
 
-        this.host.gl.clearColor(0, 0, 0, 1);
+        this.host.gl.clearColor(0, 0, 0, 0);
         this.host.gl.clear(this.host.gl.COLOR_BUFFER_BIT);
 
-        this.host.gl.useProgram(this.blendProgram);
-        const currentTarget = this.renderTargets[this.currentTargetIndex];
+        this.host.gl.useProgram(this.toneMapProgram);
+        const currentTarget = this.renderTargets[
+            this.currentTargetIndex
+        ];
 
         if (this.finishedAccumulation) {
-            this.host.gl.activeTexture(this.host.gl.TEXTURE2);
-            this.host.gl.bindTexture(
-                this.host.gl.TEXTURE_2D,
-                this.accumulatorRenderTarget.texture
-            );
-            this.host.gl.activeTexture(this.host.gl.TEXTURE3);
+            this.host.gl.activeTexture(this.host.gl.TEXTURE0);
             this.host.gl.bindTexture(
                 this.host.gl.TEXTURE_2D,
                 this.accumulatorRenderTarget.texture
             );
         } else {
-            this.host.gl.activeTexture(this.host.gl.TEXTURE2);
-            this.host.gl.bindTexture(
-                this.host.gl.TEXTURE_2D,
-                currentTarget.texture
-            );
-            this.host.gl.activeTexture(this.host.gl.TEXTURE3);
+            this.host.gl.activeTexture(this.host.gl.TEXTURE0);
             this.host.gl.bindTexture(
                 this.host.gl.TEXTURE_2D,
                 currentTarget.texture
             );
         }
 
-        this.host.gl.uniform1i(this.blendUniforms.imageA, 2);
-        this.host.gl.uniform1i(this.blendUniforms.imageB, 3);
+        this.host.gl.uniform1i(this.toneMapUniforms.image, 0);
 
         this.host.renderer.drawFullScreenQuad();
     }
@@ -227,7 +264,7 @@ export class Compositor {
 
         this.host.gl.useProgram(this.blendProgram);
 
-        while (half > 1) {
+        while (half >= 1) {
             let step = Math.floor(this.numRenderTargets / half);
             for (let i = 0; i < this.numRenderTargets; i += step) {
                 const aIndex = i;
@@ -250,8 +287,8 @@ export class Compositor {
         }
 
         this.accumulateInto(
-            this.previewRenderTarget,
-            this.previewRenderTarget,
+            this.previousResultTarget,
+            this.previousResultTarget,
             this.renderTargets[1]
         );
 
@@ -268,6 +305,12 @@ export class Compositor {
                 this.accumulatorRenderTarget
             );
         }
+
+        this.accumulateInto(
+            this.accumulatorRenderTarget,
+            this.accumulatorRenderTarget,
+            this.previousResultTarget
+        );
 
         this.finishedAccumulation = true;
         this.currentTargetIndex = 0;

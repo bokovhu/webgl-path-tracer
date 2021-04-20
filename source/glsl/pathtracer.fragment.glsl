@@ -3,8 +3,7 @@
 #define EPS 0.001
 #define PI 3.14159265
 
-#define N_INDIRECT_BOUNCES 6
-#define N_REFLECTION_BOUNCES 4
+#define N_INDIRECT_BOUNCES 8
 #define N_SAMPLES 1
 
 #define MIX_MIN 0.25
@@ -40,9 +39,9 @@ uniform struct {
     vec3 diffuse;
     vec4 specular;
     vec3 emissive;
-    vec3 reflectivity;
+    vec4 reflectivity;
     vec4 refractivity;
-    vec2 reflRefrProbability;
+    float ior;
 } materials[N_MAX_MATERIALS];
 
 uniform struct {
@@ -80,6 +79,7 @@ struct TraceResult {
     vec3 rayOrigin;
     vec3 rayDirection;
     int hitMaterialId;
+    vec3 shadowWeight;
 };
 
 TraceResult shadowTraceResult;
@@ -131,12 +131,13 @@ float intersectQuadric(in vec4 rO, in vec4 rD, in int index) {
     return (t1 < 0.0) ? t2 : ((t2 < 0.0) ? t1 : min(t1, t2));
 }
 
-void traceScene(in vec3 rO, in vec3 rD, out TraceResult result) {
+void traceScene(in vec3 rO, in vec3 rD, out TraceResult result, bool shadow) {
 
     result.hitPoint = rO;
     result.hitMaterialId = -1;
     result.rayOrigin = rO;
     result.rayDirection = rD;
+    result.shadowWeight = vec3(1.0);
 
     float bestDistance = 100000.0;
     int bestIndex = 0;
@@ -150,8 +151,18 @@ void traceScene(in vec3 rO, in vec3 rD, out TraceResult result) {
         float surfaceDistance = intersectQuadric(vec4(rO, 1.0), vec4(rD, 0.0), i);
 
         if(surfaceDistance > 0.0 && surfaceDistance < bestDistance) {
-            bestDistance = surfaceDistance;
-            bestIndex = i;
+            if(shadow && materials[surfaces[i].materialId].refractivity.w > 0.01) {
+                float choice = perPixelRandom(rO.x);
+                if(choice > materials[surfaces[i].materialId].refractivity.w) {
+                    bestDistance = surfaceDistance;
+                    bestIndex = i;
+                } else {
+                    result.shadowWeight *= materials[surfaces[i].materialId].refractivity.xyz;
+                }
+            } else {
+                bestDistance = surfaceDistance;
+                bestIndex = i;
+            }
         }
 
     }
@@ -174,7 +185,7 @@ vec3 ambientLighting(in TraceResult traceResult) {
     return lightAmbientIntensity * materials[traceResult.hitMaterialId].diffuse;
 }
 
-vec3 pointLightRadiance(in vec3 surfacePoint, in vec3 surfaceNormal, in int materialId, in int index) {
+vec3 pointLightRadiance(in vec3 surfacePoint, in vec3 surfaceNormal, in vec3 viewPos, in int materialId, in int index) {
 
     if(pointLights[index].enabled <= 0)
         return vec3(0.0);
@@ -192,7 +203,7 @@ vec3 pointLightRadiance(in vec3 surfacePoint, in vec3 surfaceNormal, in int mate
     vec3 shadowRO = surfacePoint + surfaceNormal * 0.01;
     vec3 shadowRD = surfaceToLight;
 
-    traceScene(shadowRO, shadowRD, shadowTraceResult);
+    traceScene(shadowRO, shadowRD, shadowTraceResult, false);
     float shadowDistance = length(shadowRO - shadowTraceResult.hitPoint);
 
     if(shadowTraceResult.hitMaterialId < 0 || shadowDistance > surfaceLightDistance) {
@@ -205,7 +216,7 @@ vec3 pointLightRadiance(in vec3 surfacePoint, in vec3 surfaceNormal, in int mate
             vec4 Ks = materials[materialId].specular;
             radiance += attenuation * cosTheta * lIntensity * Kd;
 
-            vec3 eyeToSurface = normalize(camera.position.xyz - surfacePoint);
+            vec3 eyeToSurface = normalize(viewPos - surfacePoint);
             vec3 halfway = normalize(eyeToSurface + surfaceToLight);
             float cosAlpha = dot(halfway, surfaceNormal);
             if(cosAlpha < 0.0) {
@@ -217,77 +228,21 @@ vec3 pointLightRadiance(in vec3 surfacePoint, in vec3 surfaceNormal, in int mate
 
     }
 
-    return radiance;
+    return radiance * shadowTraceResult.shadowWeight;
 
 }
 
-vec3 directRadiance(vec3 P, vec3 N, int m, vec3 w) {
+vec3 directRadiance(vec3 P, vec3 N, vec3 E, int m) {
     vec3 total = materials[m].emissive;
     for(int i = 0; i < pointLights.length(); i++) {
-        total += w * pointLightRadiance(P, N, m, i);
+        total += pointLightRadiance(P, N, E, m, i);
     }
     return total;
-}
-
-vec3 directLighting(in TraceResult traceResult) {
-
-    vec3 total = vec3(0.0);
-    vec3 weight = vec3(1.0);
-
-    vec3 reflRO = traceResult.rayOrigin;
-    vec3 reflRD = traceResult.rayDirection;
-    vec3 hitP = traceResult.hitPoint;
-    vec3 hitN = traceResult.hitNormal;
-    int hitM = traceResult.hitMaterialId;
-
-    for(int reflectionIndex = 0; reflectionIndex < N_REFLECTION_BOUNCES; reflectionIndex++) {
-
-        total += directRadiance(hitP, hitN, hitM, weight);
-
-        vec2 reflRefrProbability = materials[hitM].reflRefrProbability;
-        float rnd = perPixelRandom(-1.0 * float(reflectionIndex)) * (reflRefrProbability.x + reflRefrProbability.y);
-        vec3 dWeight = vec3(0.0);
-
-        reflRO = hitP + 0.01 * hitN;
-
-        TraceResult reflTraceResult;
-
-        if(rnd < reflRefrProbability.x) {
-            reflRD = normalize(reflect(reflRD, hitN));
-            dWeight = materials[hitM].reflectivity;
-        } else {
-            reflRO = hitP - 0.01 * hitN;
-            reflRD = normalize(refract(reflRD, hitN, materials[hitM].refractivity.w));
-
-            dWeight = materials[hitM].refractivity.xyz;
-        }
-
-        weight = weight * dWeight;
-
-        if(length(weight) <= 0.001) {
-            break;
-        }
-
-        traceScene(reflRO, reflRD, reflTraceResult);
-
-        hitP = reflTraceResult.hitPoint;
-        hitN = reflTraceResult.hitNormal;
-        hitM = reflTraceResult.hitMaterialId;
-
-        if(hitM < 0) {
-            total += weight * sampleEnv(reflRD);
-            break;
-        }
-
-    }
-
-    return total;
-
 }
 
 vec4 indirectSampleDirection(in vec3 N, in float i) {
 
-    vec3 samp = 2.0 * vec3(perPixelRandom(i), perPixelRandom(i + 1.0), perPixelRandom(i + 2.0)) - vec3(1.0);
+    vec3 samp =  vec3(perPixelRandom(i), perPixelRandom(i + 1.0), perPixelRandom(i + 2.0));
     vec3 NN = normalize(N + (samp * 2.0 - vec3(1.0)));
 
     return vec4(normalize(N + (samp * 2.0 - vec3(1.0))), abs(dot(N, NN)));
@@ -296,38 +251,78 @@ vec4 indirectSampleDirection(in vec3 N, in float i) {
 
 vec3 illuminate(in TraceResult primaryResult) {
 
-    vec3 total = vec3(0.0);
-    vec3 totalIndirect = vec3(0.0);
+    vec3 total = ambientLighting(primaryResult);
 
-    total += ambientLighting(primaryResult);
-    total += directLighting(primaryResult);
-
-    float w = 1.0;
+    vec3 w = vec3(1.0);
     TraceResult giTraceResult = primaryResult;
+    
 
     vec3 giRO = vec3(0.0);
     vec3 giRD = vec3(0.0);
 
+    vec4 samp = vec4(0.0, 0.0, 0.0, 1.0);
+
     for(int i = 0; i < N_INDIRECT_BOUNCES; i++) {
 
-        vec4 samp = indirectSampleDirection(giTraceResult.hitNormal, float(i));
-
-        giRO = giTraceResult.hitPoint + 0.01 * giTraceResult.hitNormal;
-        giRD = normalize(samp.xyz);
-        traceScene(giRO, giRD, giTraceResult);
-
-        if(giTraceResult.hitMaterialId < 0) {
+        int mID = giTraceResult.hitMaterialId;
+        if(mID < 0) {
             vec3 env = sampleEnv(giRD);
             total += w * env * samp.w;
             break;
         }
 
-        totalIndirect += w * samp.w * directLighting(giTraceResult) + w * samp.w * materials[giTraceResult.hitMaterialId].emissive;
-        w = w * samp.w;
+        if(materials[mID].reflectivity.w > 0.01) {
+
+            float choice = perPixelRandom(float(i));
+            if(choice < materials[mID].reflectivity.w) {
+
+                // Particle bounces off
+                w *= materials[mID].reflectivity.xyz;
+                giRO = giTraceResult.hitPoint + 0.01 * giTraceResult.hitNormal;
+                giRD = normalize(
+                    reflect(giTraceResult.rayDirection, giTraceResult.hitNormal)
+                );
+                traceScene(giRO, giRD, giTraceResult, false);
+                continue;
+
+            }
+
+        }
+
+        if(materials[mID].refractivity.w > 0.01) {
+
+            float choice = perPixelRandom(float(i));
+            if(choice < materials[mID].refractivity.w) {
+
+                // Particle is transmitted
+                w *= materials[mID].refractivity.xyz;
+                
+                giRO = giTraceResult.hitPoint - 0.01 * giTraceResult.hitNormal;
+                giRD = normalize(
+                    refract(giTraceResult.rayDirection, giTraceResult.hitNormal, materials[mID].ior)
+                );
+                traceScene(giRO, giRD, giTraceResult, false);
+                continue;
+
+            }
+
+        }
+
+        if(length(materials[mID].diffuse) > 0.0) {
+            // BRDF = albedo/PI = 1/PI
+            // * PI was removed
+            total += 2.0 * w * directRadiance(giTraceResult.hitPoint, giTraceResult.hitNormal, giTraceResult.rayOrigin, mID);
+        }
+
+        samp = indirectSampleDirection(giTraceResult.hitNormal, float(i));
+        giRO = giTraceResult.hitPoint + 0.01 * giTraceResult.hitNormal;
+        giRD = normalize(samp.xyz);
+        traceScene(giRO, giRD, giTraceResult, false);
+        w *= samp.w;
 
     }
 
-    return total + totalIndirect;
+    return total;
 
 }
 
@@ -350,7 +345,7 @@ void main() {
 
         TraceResult primaryResult;
 
-        traceScene(primaryRO, primaryRD, primaryResult);
+        traceScene(primaryRO, primaryRD, primaryResult, false);
 
         if(primaryResult.hitMaterialId >= 0) {
             total += illuminate(primaryResult);

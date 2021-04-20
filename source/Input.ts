@@ -10,7 +10,6 @@ interface InputHost {
     readonly timer: Timer;
     signalDrop(): void;
     togglePause(): void;
-    takeScreenshot(): void;
 }
 
 const MOVEMENT_SPEED = 4.0;
@@ -91,9 +90,6 @@ export class Input {
                 break;
             case " ":
                 this.host.togglePause();
-                break;
-            case "p":
-                this.host.takeScreenshot();
                 break;
             case "x":
                 this.host.camera.saveToLocalStorage();

@@ -47,7 +47,7 @@ export class Scene {
                     emissive: `materials[${i}].emissive`,
                     reflectivity: `materials[${i}].reflectivity`,
                     refractivity: `materials[${i}].refractivity`,
-                    reflectionRefractionProbability: `materials[${i}].reflRefrProbability`,
+                    ior: `materials[${i}].ior`
                 })
             );
         }
