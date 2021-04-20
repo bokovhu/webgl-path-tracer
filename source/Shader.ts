@@ -26,11 +26,6 @@ export function compileShader(
         throw new Error(`Could not compile ${name}: ${infoLog}`);
     }
 
-    /* const err = host.gl.getError();
-    if (err) {
-        throw new Error(`OpenGL error after creating shader ${name}: ${err}`);
-    } */
-
     return shader;
 }
 
@@ -87,11 +82,6 @@ export function createProgram(
         const infoLog = host.gl.getProgramInfoLog(program);
         throw new Error(`Could not validate ${name}: ${infoLog}`);
     }
-
-    /* const err = host.gl.getError();
-    if (err) {
-        throw new Error(`OpenGL error after creating program ${name}: ${err}`);
-    } */
 
     return program;
 }
